@@ -1,0 +1,109 @@
+---
+title: "LSOA Map"
+author: "Scott Robertson"
+date: "17/04/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Install required packages, if not present
+if("knitr" %in% rownames(installed.packages()) == FALSE){
+      install.packages("knitr")
+}
+if("kableExtra" %in% rownames(installed.packages()) == FALSE){
+      install.packages("kableExtra")
+}
+if("rgdal" %in% rownames(installed.packages()) == FALSE){
+      install.packages("rgdal")
+}
+
+# Load libraries into workplace
+library(knitr)
+library(kableExtra)
+library(rgdal)
+
+# Set working directory 
+setwd("~/R Programming/Coursera/Data Products/Shiny/LSOAHeatMap")
+
+
+```
+
+## Summary
+
+This is part of a larger project looking at ways of using Open Source tools to better visualise and explore crime data. It also forms part of an ongoing Coursera course on data science. For the purpose of this piece of work I will be looking at how we can create geospatial dispalys of information using R, Leaflet and Shiny.
+
+## Data
+
+The data source for this project is [data.police.uk](https://data.police.uk) an open source website which publishes crime and policing data for England, Wales and Northern Ireland. This includes a number of datasets covering street-level crime, outcomes and stop and search data.
+
+For our purpose the data is useful as it contains approximate geo-coding for each crime. This makes it easy to use the data to do aggregation at the LSOA.
+
+For the purpose of this piece of work I have downloaded data for 2017-2018 and stored it locally on my machine. API access is also avaliable and could be used to create a more dynamic use of dates.
+
+```{r data_load, echo=TRUE, cache=TRUE}
+# Access folder where crime data is saved
+setwd("~/R Programming/Coursera/Data Products/Shiny/LSOAHeatMap/data")
+
+# Create list of files to import
+fileList <- list.files()
+
+# Run function to import files
+crimeData <- do.call("rbind", lapply(fileList, read.csv, header = TRUE))
+
+# Return to working directory
+setwd("~/R Programming/Coursera/Data Products/Shiny/LSOAHeatMap")
+```
+
+A quick check of the imported data shows that we have just over 2 million records covering this period.
+
+```{r data_summary}
+# Extract number of observations and variables in data set
+dim_crimeData <- data.frame(
+  Dataset = "crimeData",
+  Observations = dim(crimeData)[1],
+  Variables = dim(crimeData)[2]
+)
+
+# Create formated table with dimensions
+kable(dim_crimeData) %>%
+  kable_styling(bootstrap_options = "bordered", full_width = F)
+
+```
+
+## Geographic shape file
+
+In order to build this map we also need to prepare a geohraphical shape file in order to determine our bournadries. These have been downloaded from the London Data Store and kept on the local machine.
+
+```{r geo-space}
+# Load LSOA data set
+lsoa<-readOGR(dsn="data/statistical-gis-boundaries-london/ESRI", layer="LSOA_2011_London_gen_MHW")
+
+# Cut out unnecessary columns
+lsoa@data<-lsoa@data[,c(1,2)]
+
+# transform to WGS884 reference system 
+lsoa<-spTransform(lsoa, CRS("+init=epsg:4326"))
+
+# Find the edges of our map
+bounds<-bbox(lsoa)
+
+# Create a lits of lsoa for cleaning
+lsoaList <- lsoa@data[2]
+```
+
+```{r summay_data}
+crimeSummary <- crimeData[,c("Month", "LSOA.name", "Crime.type")] 
+
+# Summarise data
+crimeSummary <- crimeSummary %>%
+  group_by(Month, LSOA.name, Crime.type) %>%
+  summarise(Total = n())
+
+# Remove missing and non-London LSOA
+crimeSummary <- crimeSummary[crimeSummary$LSOA.name %in% lsoaList$LSOA11NM,]
+
+```
+
+
